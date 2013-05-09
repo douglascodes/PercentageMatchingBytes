@@ -1,0 +1,4 @@
+*.o
+*.c
+percent_diff
+a.out
