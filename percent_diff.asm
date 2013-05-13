@@ -2,7 +2,7 @@
 
 ; A place to build samples for testing
 [SECTION .data]
-    Similarity_Text:        db "The similarities between file: %s and file: %s are %g%%", 10,0
+    Similarity_Text:        db "The similarities between file: %s and file: %s are %lf%%", 10,0
     File_Error_Text:        db "A specified file was not found.",10,0
     Arg_count_error:        db "Need to specify TWO files. You gave %d.", 10, 0
 
@@ -143,7 +143,7 @@ Get_file_length:
     mov rax, 106                ; FileStats
     mov rcx, File_Buffer        ; Read file in RAX
     int 80h                     ; Call sys_read
-    mov rax,[rcx+20]            ; Moves value of File_length into RAX
+    mov eax,[File_Buffer+20]            ; Moves value of File_length into RAX
     ret
 
 ;********************************************************************
@@ -211,7 +211,7 @@ Compare_memory_Segs:
 .Not_Matching:
     inc rsi
     inc rdi
-    dec ecx
+    dec rcx
     jnz .Cycle_comparison
     mov rax, rdx
     ret
@@ -262,10 +262,10 @@ Divide_percentage:
 ;    mov rax, 10000                  ; TESTing
 ;    mov [Shorter_File_Len], rax     ; TESTing
 
-    mov rax, [Matched_Bytes]    ; Puts the divisor in rax :: Matched bytes
-    cvtsi2sd xmm0, rax          ; then into xmm0
-    mov rax, [Shorter_File_Len] ; Move the dividend into xmm1 through RAX
-    cvtsi2sd xmm1, rax
+;    mov rax, [Matched_Bytes]    ; Puts the divisor in rax :: Matched bytes
+    cvtsi2sd xmm0, [Matched_Bytes]          ; then into xmm0
+;    mov rax, [Shorter_File_Len] ; Move the dividend into xmm1 through RAX
+    cvtsi2sd xmm1, [Shorter_File_Len]
     divsd xmm0, xmm1            ; Divide and store in xmm0
 
     mov rax, 100                ; Move the percentage multiplier 100% = 1
@@ -281,8 +281,8 @@ Print_file_comp_results:
     mov rdi, Similarity_Text
     mov rsi, FileA_name
     mov rdx, FileB_name
-    movsd xmm0, [Percentage_Match]
-    mov rax, 1
+    movsd xmm0, [Percentage_Match]  ; Re
+    mov rax, 1                  ; Number of XMM regs used
 
     call printf                 ; Send the formatted string to C-printf
 
