@@ -2,8 +2,8 @@
 
 ; A place to build samples for testing
 [SECTION .data]
-    Similarity_Text:        db "The similarities between file: %s and file: %s are %lf%%", 10,0
-    File_Error_Text:        db "A specified file was not found.",10,0
+    Similarity_Text:        db "Between file: %s and file: %s", 10, "Percent Similar: %lf %%", 10, "Matched: %d", 10, "Compared: %d",10 ,0
+    File_Error_Text:        db "A specified file was not behaving: %s",10,0
     Arg_count_error:        db "Need to specify TWO files. You gave %d.", 10, 0
 
 [SECTION .bss]
@@ -92,12 +92,12 @@ TESTING:
 ;* FUNCTION  : Writes error message via printf
 ;********************************************************************
 Arg_Count_Check_Fail:
-    mov rsi, rdi
-    mov rdi, Arg_count_error
-    dec rsi
-    call printf
+    mov rsi, rdi                ; Moves the pointer from main's start to rsi
+    mov rdi, Arg_count_error    ; Points to the error message
+    dec rsi                     ; Accounts for the called command being a commang arg
+    call printf                 ; Prints error message
 
-    jmp ArgumentError
+    jmp ArgumentError           ; Quits
 
 ;********************************************************************
 ;* NAME      : Move_string_til_null
@@ -143,8 +143,16 @@ Get_file_length:
     mov rax, 106                ; FileStats
     mov rcx, File_Buffer        ; Read file in RAX
     int 80h                     ; Call sys_read
-    mov eax,[File_Buffer+20]            ; Moves value of File_length into RAX
+
+    test rax, rax               ; Checks returned error code
+    jl Bad_file                 ; Jump to File error handle
+
+    mov eax,[File_Buffer+20]    ; Moves value of File_length into RAX
     ret
+
+Bad_file:
+    mov rsi, rbx
+    jmp File_error
 
 ;********************************************************************
 ;* NAME      : Store_file_lengths
@@ -158,7 +166,7 @@ Get_file_length:
 ;* FUNCTION  : Too short to describe
 ;********************************************************************
 Store_file_lengths:
-    mov [Longer_File_Len], rax      ; Store RAX as longer length
+    mov [Longer_File_Len], rax       ; Store RAX as longer length
     mov [Shorter_File_Len], rbx      ; Store RBX as shorter length
     ret
 
@@ -166,23 +174,24 @@ Store_file_lengths:
 ;* NAME      : Swap_file_names
 ;* PARAMS    : None
 ;* RETURNS   : None
-;* MEMORY    : FileA_name
-;*           : FileB_name
+;* MEMORY    : [FileA_name]
+;*           : [FileB_name]
+;*           : [File_Buffer]
 ;* DESTROYS  : RAX, RCX, RDI, RSI, R11
 ;* CALLS     : Move_string_til_null
 ;* FUNCTION  : Switches the given file names.
 ;********************************************************************
 Swap_file_names:
-    mov rsi, FileA_name
-    mov rdi, File_Buffer
-    call Move_string_til_null
+    mov rsi, FileA_name                 ; Takes String-NullByte
+    mov rdi, File_Buffer                ; Aims it at the buffer
+    call Move_string_til_null           ; Stores it there
 
-    mov rsi, FileB_name
-    mov rdi, FileA_name
-    call Move_string_til_null
+    mov rsi, FileB_name                 ; Moves Name of FileB
+    mov rdi, FileA_name                 ; To FileA location
+    call Move_string_til_null           ; And stores it there
 
-    mov rsi, File_Buffer
-    mov rdi, FileB_name
+    mov rsi, File_Buffer                ; Takes the buffer-stored Name
+    mov rdi, FileB_name                 ; Puts it in FileB's place
     call Move_string_til_null
     ret
 
@@ -192,28 +201,27 @@ Swap_file_names:
 ;*           : Section B => RDI
 ;*           : Length to compare => RCX
 ;* RETURNS   : Number of matching => RAX
-;* MEMORY    : Mem_LocA
-;*           : Mem_LocB
-;* DESTROYS  : RAX, RCX, RDX
+;* MEMORY    : No changes to memory
+;* DESTROYS  : RAX, RCX, RDX, RDI, RSI
 ;* CALLS     : None
 ;* FUNCTION  : For the length of RCX compares bytes. Each match enumerates
-;*              RAX. Returns the match # in RAX.
+;*              RDX. Returns the match # in RAX.
 ;********************************************************************
 Compare_memory_Segs:
-    xor rdx, rdx
+    xor rdx, rdx        ; Zeroes RDX for match count
 
 .Cycle_comparison:
-    mov al, [rdi]
-    cmp [rsi], al
-    jne .Not_Matching
-    inc rdx
+    mov al, [rdi]       ; Moves [RDI] into AL
+    cmp [rsi], al       ; Compares this byte to [RSI]
+    jne .Not_Matching   ; If != skip increment
+    inc rdx             ; Increment Match Counter
 
 .Not_Matching:
-    inc rsi
-    inc rdi
-    dec rcx
-    jnz .Cycle_comparison
-    mov rax, rdx
+    inc rsi             ; Move the goal posts
+    inc rdi             ; To the next pair of bytes
+    dec rcx             ; Subtract remaining byte count
+    jnz .Cycle_comparison   ; If RCX is not ZERO repeat loop
+    mov rax, rdx            ; Pass RDX counter to RAX for return value
     ret
 
 ;********************************************************************
@@ -281,6 +289,8 @@ Print_file_comp_results:
     mov rdi, Similarity_Text
     mov rsi, FileA_name
     mov rdx, FileB_name
+    mov rcx, [Matched_Bytes]
+    mov r8, [Shorter_File_Len]
     movsd xmm0, [Percentage_Match]  ; Re
     mov rax, 1                  ; Number of XMM regs used
 
@@ -290,13 +300,23 @@ Print_file_comp_results:
     ret
 
 Unkown_scan_error:
-    mov rax, -2  ; Excessive scan length.
-    mov rsp, rbp
-    sub rsp, 30h
+    mov rax, -7  ; Argument length too long
+    mov rsp, rbp ; Return RBP to RSP
+    sub rsp, 30h ; Account for saved stack
+    jmp Exit
+
+File_error:
+
+    mov rdi, File_Error_Text
+    xor rax, rax
+    call printf                 ; Send the formatted string to C-printf
+
+    mov rax, -2  ; File error code.
+    add rsp, 8
     jmp Exit
 
 ArgumentError:
-    mov rax, 2  ; Argument error code.
+    mov rax, -22  ; Argument error code.
     jmp Exit
 
 NormalExit:     ; Jmp location for normal exit
